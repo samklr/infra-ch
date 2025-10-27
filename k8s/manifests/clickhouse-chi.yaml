@@ -1,0 +1,204 @@
+---
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: clickhouse-cluster
+  namespace: clickhouse
+spec:
+  defaults:
+    templates:
+      podTemplate: clickhouse-pod
+      dataVolumeClaimTemplate: data-volume
+      logVolumeClaimTemplate: log-volume
+      serviceTemplate: chi-service
+
+  configuration:
+    users:
+      # Default user with password (change in production!)
+      default/password: changeme
+      default/networks/ip:
+        - "0.0.0.0/0"
+      # Admin user
+      admin/password: admin_changeme
+      admin/profile: default
+      admin/quota: default
+      admin/networks/ip:
+        - "0.0.0.0/0"
+      admin/access_management: "1"
+
+    profiles:
+      default/max_memory_usage: "10000000000"
+      default/use_uncompressed_cache: "0"
+      default/load_balancing: "random"
+      readonly/readonly: "1"
+
+    quotas:
+      default/interval/duration: "3600"
+      default/interval/queries: "0"
+      default/interval/errors: "0"
+      default/interval/result_rows: "0"
+      default/interval/read_rows: "0"
+      default/interval/execution_time: "0"
+
+    settings:
+      compression/case/method: zstd
+      disable_internal_dns_cache: 1
+
+    # ClickHouse Keeper configuration
+    zookeeper:
+      nodes:
+        - host: clickhouse-keeper-0.clickhouse-keeper-headless.clickhouse.svc.cluster.local
+          port: 2181
+        - host: clickhouse-keeper-1.clickhouse-keeper-headless.clickhouse.svc.cluster.local
+          port: 2181
+        - host: clickhouse-keeper-2.clickhouse-keeper-headless.clickhouse.svc.cluster.local
+          port: 2181
+      session_timeout_ms: 30000
+      operation_timeout_ms: 10000
+
+    clusters:
+      - name: clickhouse-cluster
+        layout:
+          shardsCount: 3
+          replicasCount: 2
+
+        # Shard and replica configuration
+        schemaPolicy:
+          replica: None
+          shard: All
+
+  templates:
+    podTemplates:
+      - name: clickhouse-pod
+        metadata:
+          labels:
+            app: clickhouse
+        spec:
+          # Node affinity for ClickHouse nodes
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: role
+                        operator: In
+                        values:
+                          - clickhouse
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app
+                        operator: In
+                        values:
+                          - clickhouse
+                  topologyKey: kubernetes.io/hostname
+
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: clickhouse
+              effect: NoSchedule
+
+          # Topology spread for multi-AZ
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app: clickhouse
+
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:23.8.9.54
+              imagePullPolicy: IfNotPresent
+
+              ports:
+                - name: http
+                  containerPort: 8123
+                  protocol: TCP
+                - name: tcp
+                  containerPort: 9000
+                  protocol: TCP
+                - name: interserver
+                  containerPort: 9009
+                  protocol: TCP
+
+              resources:
+                requests:
+                  memory: "16Gi"
+                  cpu: "4"
+                limits:
+                  memory: "32Gi"
+                  cpu: "8"
+
+              livenessProbe:
+                httpGet:
+                  path: /ping
+                  port: 8123
+                initialDelaySeconds: 30
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 3
+
+              readinessProbe:
+                httpGet:
+                  path: /ping
+                  port: 8123
+                initialDelaySeconds: 10
+                periodSeconds: 5
+                timeoutSeconds: 3
+                failureThreshold: 3
+
+              volumeMounts:
+                - name: data-volume
+                  mountPath: /var/lib/clickhouse
+                - name: log-volume
+                  mountPath: /var/log/clickhouse-server
+
+    volumeClaimTemplates:
+      - name: data-volume
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: gp3-encrypted
+          resources:
+            requests:
+              storage: 500Gi
+
+      - name: log-volume
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: gp3-encrypted
+          resources:
+            requests:
+              storage: 10Gi
+
+    serviceTemplates:
+      - name: chi-service
+        metadata:
+          labels:
+            app: clickhouse
+        spec:
+          ports:
+            - name: http
+              port: 8123
+              targetPort: 8123
+            - name: tcp
+              port: 9000
+              targetPort: 9000
+          type: ClusterIP
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickhouse-pdb
+  namespace: clickhouse
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: clickhouse

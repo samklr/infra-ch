@@ -1,0 +1,42 @@
+# AWS Configuration
+aws_region         = "us-west-2"
+environment        = "prod"
+cluster_name       = "clickhouse-eks"
+cluster_version    = "1.28"
+
+# VPC Configuration
+vpc_cidr           = "10.0.0.0/16"
+availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c"]
+
+# ClickHouse Node Configuration
+# Recommended instance types: r5.xlarge, r5.2xlarge, r5.4xlarge, r5.8xlarge
+# For 3 shards × 2 replicas = 6 nodes minimum
+clickhouse_node_instance_type = "r5.2xlarge"
+clickhouse_node_count         = 6
+
+# Keeper Node Configuration
+# Must be odd number (3 or 5 recommended)
+keeper_node_instance_type = "t3.medium"
+keeper_node_count         = 3
+
+# General Workload Nodes
+# For operators, monitoring, backups
+general_node_instance_type = "t3.large"
+general_node_count         = 2
+
+# Backup Configuration
+# Leave empty to auto-generate bucket name
+backup_s3_bucket_name = ""
+backup_retention_days = 30
+
+# Autoscaling
+enable_cluster_autoscaler = true
+enable_karpenter         = false
+
+# Additional Tags
+tags = {
+  Project     = "ClickHouse"
+  Team        = "Data Engineering"
+  CostCenter  = "Engineering"
+  Environment = "Production"
+}

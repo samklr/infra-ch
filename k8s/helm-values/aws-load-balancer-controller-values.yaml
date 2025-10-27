@@ -1,0 +1,83 @@
+# AWS Load Balancer Controller Helm Values
+# Chart: https://github.com/aws/eks-charts
+
+replicaCount: 2
+
+image:
+  repository: public.ecr.aws/eks/aws-load-balancer-controller
+  tag: v2.6.2
+  pullPolicy: IfNotPresent
+
+# Cluster name - MUST be set
+clusterName: CLUSTER_NAME
+
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/CLUSTER_NAME-aws-load-balancer-controller"
+
+# AWS region - MUST be set
+region: us-west-2
+
+# VPC ID - MUST be set
+vpcId: VPC_ID
+
+# Resources
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Node affinity
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: role
+              operator: In
+              values:
+                - general
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - aws-load-balancer-controller
+          topologyKey: kubernetes.io/hostname
+
+# Pod disruption budget
+podDisruptionBudget:
+  maxUnavailable: 1
+
+# Enable Shield, WAF, WAFv2
+enableShield: false
+enableWaf: false
+enableWafv2: false
+
+# Log level
+logLevel: info
+
+# Metrics
+enableCertManager: false
+
+# Webhook
+webhookBindPort: 9443
+
+# Enable endpoint slice
+enableEndpointSlices: true
+
+# Service monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  labels:
+    prometheus: kube-prometheus

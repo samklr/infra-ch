@@ -1,0 +1,206 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-keeper-config
+  namespace: clickhouse
+data:
+  keeper_config.xml: |
+    <clickhouse>
+        <logger>
+            <level>information</level>
+            <console>true</console>
+        </logger>
+        <listen_host>0.0.0.0</listen_host>
+        <keeper_server>
+            <tcp_port>2181</tcp_port>
+            <server_id from_env="KEEPER_SERVER_ID"></server_id>
+            <log_storage_path>/var/lib/clickhouse-keeper/coordination/log</log_storage_path>
+            <snapshot_storage_path>/var/lib/clickhouse-keeper/coordination/snapshots</snapshot_storage_path>
+            <coordination_settings>
+                <operation_timeout_ms>10000</operation_timeout_ms>
+                <session_timeout_ms>30000</session_timeout_ms>
+                <raft_logs_level>information</raft_logs_level>
+            </coordination_settings>
+            <raft_configuration>
+                <server>
+                    <id>1</id>
+                    <hostname>clickhouse-keeper-0.clickhouse-keeper-headless.clickhouse.svc.cluster.local</hostname>
+                    <port>9234</port>
+                </server>
+                <server>
+                    <id>2</id>
+                    <hostname>clickhouse-keeper-1.clickhouse-keeper-headless.clickhouse.svc.cluster.local</hostname>
+                    <port>9234</port>
+                </server>
+                <server>
+                    <id>3</id>
+                    <hostname>clickhouse-keeper-2.clickhouse-keeper-headless.clickhouse.svc.cluster.local</hostname>
+                    <port>9234</port>
+                </server>
+            </raft_configuration>
+        </keeper_server>
+    </clickhouse>
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-keeper-headless
+  namespace: clickhouse
+spec:
+  clusterIP: None
+  selector:
+    app: clickhouse-keeper
+  ports:
+    - name: client
+      port: 2181
+      targetPort: 2181
+    - name: raft
+      port: 9234
+      targetPort: 9234
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-keeper
+  namespace: clickhouse
+spec:
+  selector:
+    app: clickhouse-keeper
+  ports:
+    - name: client
+      port: 2181
+      targetPort: 2181
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse-keeper
+  namespace: clickhouse
+spec:
+  serviceName: clickhouse-keeper-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: clickhouse-keeper
+  template:
+    metadata:
+      labels:
+        app: clickhouse-keeper
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - keeper
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - clickhouse-keeper
+              topologyKey: kubernetes.io/hostname
+
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: keeper
+          effect: NoSchedule
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: clickhouse-keeper
+
+      containers:
+        - name: clickhouse-keeper
+          image: clickhouse/clickhouse-keeper:23.8.9.54
+          imagePullPolicy: IfNotPresent
+
+          env:
+            - name: KEEPER_SERVER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['apps.kubernetes.io/pod-index']
+
+          ports:
+            - name: client
+              containerPort: 2181
+              protocol: TCP
+            - name: raft
+              containerPort: 9234
+              protocol: TCP
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+
+          livenessProbe:
+            tcpSocket:
+              port: 2181
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - "echo ruok | nc localhost 2181 | grep imok"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse-keeper
+            - name: config
+              mountPath: /etc/clickhouse-keeper
+
+      volumes:
+        - name: config
+          configMap:
+            name: clickhouse-keeper-config
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: gp3-encrypted
+        resources:
+          requests:
+            storage: 20Gi
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickhouse-keeper-pdb
+  namespace: clickhouse
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: clickhouse-keeper

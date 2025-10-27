@@ -1,0 +1,107 @@
+# Altinity ClickHouse Operator Helm Values
+# Chart: https://github.com/Altinity/clickhouse-operator
+
+operator:
+  # Operator image
+  image:
+    repository: altinity/clickhouse-operator
+    tag: 0.23.4
+    pullPolicy: IfNotPresent
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  # Log level
+  logLevel: "info"
+
+  # Reconcile settings
+  reconcileThreadsNumber: 10
+  reconcileWaitExclude: "true"
+  reconcileWaitInclude: "false"
+
+  # Node affinity for operator pod
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: role
+                operator: In
+                values:
+                  - general
+
+metrics:
+  # Metrics exporter image
+  image:
+    repository: altinity/metrics-exporter
+    tag: 0.23.4
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    labels:
+      prometheus: kube-prometheus
+
+# Service account configuration
+serviceAccount:
+  create: true
+  name: clickhouse-operator
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/CLUSTER_NAME-clickhouse-operator"
+
+# RBAC
+rbac:
+  create: true
+
+# Namespace to watch (empty means all namespaces)
+watchNamespaces: ["clickhouse"]
+
+# Altinity ClickHouse Operator configuration
+config:
+  # Create CRDs
+  createCRDs: true
+
+  # Annotation include/exclude patterns
+  annotation:
+    include: []
+    exclude: []
+
+  # Label include/exclude patterns
+  label:
+    include: []
+    exclude: []
+
+  # StatefulSet update settings
+  statefulSet:
+    # Update timeout in seconds
+    updateTimeout: 300
+    # Update poll period in seconds
+    updatePollPeriod: 5
+
+  # Pod termination grace period
+  pod:
+    terminationGracePeriod: 30
+
+  # Logger settings
+  logger:
+    logtostderr: "true"
+    alsologtostderr: "false"
+    v: "1"
+    stderrthreshold: ""
+    vmodule: ""
+    log_backtrace_at: ""

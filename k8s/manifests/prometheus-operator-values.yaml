@@ -1,0 +1,314 @@
+# Kube-Prometheus-Stack Helm Values
+# Chart: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+
+# Global settings
+fullnameOverride: prometheus
+
+# Prometheus Operator
+prometheusOperator:
+  enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Prometheus instance
+prometheus:
+  enabled: true
+
+  prometheusSpec:
+    # Retention
+    retention: 15d
+    retentionSize: "50GB"
+
+    # Storage
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3-encrypted
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+
+    # Resources
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 2
+        memory: 4Gi
+
+    # Node affinity
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: role
+                  operator: In
+                  values:
+                    - general
+
+    # Service monitor selector
+    serviceMonitorSelector:
+      matchLabels:
+        prometheus: kube-prometheus
+
+    # Pod monitor selector
+    podMonitorSelector:
+      matchLabels:
+        prometheus: kube-prometheus
+
+    # Additional scrape configs
+    additionalScrapeConfigs:
+      - job_name: 'clickhouse'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - clickhouse
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: clickhouse
+          - source_labels: [__meta_kubernetes_pod_ip]
+            action: replace
+            target_label: __address__
+            replacement: $1:8123
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: instance
+
+# Grafana
+grafana:
+  enabled: true
+
+  adminPassword: admin_changeme
+
+  persistence:
+    enabled: true
+    storageClassName: gp3-encrypted
+    size: 10Gi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Grafana dashboards
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  dashboards:
+    default:
+      clickhouse-overview:
+        gnetId: 14192
+        revision: 1
+        datasource: Prometheus
+      kubernetes-cluster:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+      node-exporter:
+        gnetId: 1860
+        revision: 27
+        datasource: Prometheus
+
+  # Datasources
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://prometheus-prometheus:9090
+          access: proxy
+          isDefault: true
+
+  # Service
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+  # Node affinity
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: role
+                operator: In
+                values:
+                  - general
+
+# Alertmanager
+alertmanager:
+  enabled: true
+
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3-encrypted
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: role
+                  operator: In
+                  values:
+                    - general
+
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: 'null'
+      routes:
+        - match:
+            alertname: Watchdog
+          receiver: 'null'
+    receivers:
+      - name: 'null'
+
+# Node exporter
+nodeExporter:
+  enabled: true
+
+# Kube state metrics
+kubeStateMetrics:
+  enabled: true
+
+# Default rules
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: false
+    general: true
+    k8s: true
+    kubeApiserver: true
+    kubeApiserverAvailability: true
+    kubeApiserverSlos: true
+    kubelet: true
+    kubeProxy: true
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    kubeScheduler: true
+    kubeStateMetrics: true
+    network: true
+    node: true
+    prometheus: true
+    prometheusOperator: true
+
+# Additional Prometheus Rules for ClickHouse
+additionalPrometheusRulesMap:
+  clickhouse-rules:
+    groups:
+      - name: clickhouse.rules
+        interval: 30s
+        rules:
+          - alert: ClickHouseDown
+            expr: up{job="clickhouse"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ClickHouse instance is down"
+              description: "ClickHouse instance {{ $labels.instance }} has been down for more than 5 minutes."
+
+          - alert: ClickHouseHighCPU
+            expr: rate(process_cpu_seconds_total{job="clickhouse"}[5m]) > 0.8
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage on ClickHouse"
+              description: "ClickHouse instance {{ $labels.instance }} has high CPU usage ({{ $value }})."
+
+          - alert: ClickHouseHighMemory
+            expr: (process_resident_memory_bytes{job="clickhouse"} / node_memory_MemTotal_bytes) > 0.9
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage on ClickHouse"
+              description: "ClickHouse instance {{ $labels.instance }} is using {{ $value | humanizePercentage }} of available memory."
+
+          - alert: ClickHouseDiskSpaceWarning
+            expr: (node_filesystem_avail_bytes{mountpoint="/var/lib/clickhouse"} / node_filesystem_size_bytes) < 0.2
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse disk space running low"
+              description: "ClickHouse disk space on {{ $labels.instance }} is below 20% ({{ $value | humanizePercentage }} remaining)."
+
+          - alert: ClickHouseDiskSpaceCritical
+            expr: (node_filesystem_avail_bytes{mountpoint="/var/lib/clickhouse"} / node_filesystem_size_bytes) < 0.1
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "ClickHouse disk space critically low"
+              description: "ClickHouse disk space on {{ $labels.instance }} is below 10% ({{ $value | humanizePercentage }} remaining)."
+
+          - alert: ClickHouseReplicationLag
+            expr: ClickHouseMetrics_ReplicasMaxAbsoluteDelay > 300
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse replication lag detected"
+              description: "ClickHouse replication lag on {{ $labels.instance }} is {{ $value }} seconds."
+
+          - alert: ClickHouseReadonlyReplica
+            expr: ClickHouseMetrics_ReadonlyReplica > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ClickHouse replica is in readonly mode"
+              description: "ClickHouse replica {{ $labels.instance }} is in readonly mode."

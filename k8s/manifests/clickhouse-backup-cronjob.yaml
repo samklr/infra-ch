@@ -1,0 +1,196 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clickhouse-backup
+  namespace: clickhouse
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/CLUSTER_NAME-clickhouse-backup"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-backup-config
+  namespace: clickhouse
+data:
+  config.yml: |
+    general:
+      remote_storage: s3
+      disable_progress_bar: true
+      backups_to_keep_local: 1
+      backups_to_keep_remote: 7
+    clickhouse:
+      username: admin
+      password: admin_changeme
+      host: clickhouse-cluster
+      port: 9000
+      disk_mapping: {}
+      skip_tables:
+        - system.*
+        - INFORMATION_SCHEMA.*
+        - information_schema.*
+    s3:
+      endpoint: ""
+      region: us-west-2
+      bucket: BACKUP_BUCKET_NAME
+      path: clickhouse-backups
+      disable_ssl: false
+      disable_cert_verification: false
+      use_custom_storage_class: false
+      storage_class: STANDARD
+      concurrency: 1
+      part_size: 104857600
+      max_parts_count: 10000
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clickhouse-backup
+  namespace: clickhouse
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: clickhouse-backup
+        spec:
+          serviceAccountName: clickhouse-backup
+          restartPolicy: OnFailure
+
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: role
+                        operator: In
+                        values:
+                          - general
+
+          containers:
+            - name: backup
+              image: altinity/clickhouse-backup:2.4.30
+              imagePullPolicy: IfNotPresent
+
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -e
+                  echo "Starting backup at $(date)"
+
+                  # Create backup
+                  BACKUP_NAME="backup-$(date +%Y%m%d-%H%M%S)"
+                  clickhouse-backup create "$BACKUP_NAME"
+
+                  # Upload to S3
+                  clickhouse-backup upload "$BACKUP_NAME"
+
+                  # Clean up old local backups
+                  clickhouse-backup list local | tail -n +2 | head -n -1 | xargs -I {} clickhouse-backup delete local {}
+
+                  # Clean up old remote backups (keep last 7)
+                  clickhouse-backup list remote | tail -n +8 | xargs -I {} clickhouse-backup delete remote {}
+
+                  echo "Backup completed at $(date)"
+
+              env:
+                - name: LOG_LEVEL
+                  value: "info"
+                - name: AWS_REGION
+                  value: "us-west-2"
+
+              resources:
+                requests:
+                  memory: "512Mi"
+                  cpu: "500m"
+                limits:
+                  memory: "2Gi"
+                  cpu: "1"
+
+              volumeMounts:
+                - name: config
+                  mountPath: /etc/clickhouse-backup
+                  readOnly: true
+
+          volumes:
+            - name: config
+              configMap:
+                name: clickhouse-backup-config
+
+---
+# Manual backup job template (use kubectl create job)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clickhouse-backup-manual
+  namespace: clickhouse
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: clickhouse-backup
+    spec:
+      serviceAccountName: clickhouse-backup
+      restartPolicy: OnFailure
+
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - general
+
+      containers:
+        - name: backup
+          image: altinity/clickhouse-backup:2.4.30
+          imagePullPolicy: IfNotPresent
+
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "Starting manual backup at $(date)"
+
+              BACKUP_NAME="manual-backup-$(date +%Y%m%d-%H%M%S)"
+              clickhouse-backup create "$BACKUP_NAME"
+              clickhouse-backup upload "$BACKUP_NAME"
+
+              echo "Manual backup completed at $(date)"
+
+          env:
+            - name: LOG_LEVEL
+              value: "info"
+            - name: AWS_REGION
+              value: "us-west-2"
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1"
+
+          volumeMounts:
+            - name: config
+              mountPath: /etc/clickhouse-backup
+              readOnly: true
+
+      volumes:
+        - name: config
+          configMap:
+            name: clickhouse-backup-config
