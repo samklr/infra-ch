@@ -301,10 +301,3 @@ Default configuration in us-west-2:
 - **AWS Load Balancer Controller**: v2.6.2
 - **Prometheus Stack**: 55.5.0
 
-## License
-
-This project is provided as-is for reference and educational purposes.
-
----
-
-Last Updated: 2024-01-27
