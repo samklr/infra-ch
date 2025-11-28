@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.clickhouse.clusterName }}-keeper
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: clickhouse-keeper
+spec:
+  selector:
+    matchLabels:
+      app: clickhouse-keeper
+  serviceName: {{ .Values.clickhouse.clusterName }}-keeper-headless
+  replicas: {{ .Values.keeper.replicas }}
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: clickhouse-keeper
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - keeper
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - clickhouse-keeper
+              topologyKey: kubernetes.io/hostname
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: keeper
+          effect: NoSchedule
+      containers:
+        - name: clickhouse-keeper
+          image: {{ .Values.clickhouse.image.repository }}:{{ .Values.clickhouse.image.tag }}
+          imagePullPolicy: {{ .Values.clickhouse.image.pullPolicy }}
+          volumeMounts:
+            - name: keeper-config
+              mountPath: /etc/clickhouse-keeper/keeper_config.xml
+              subPath: keeper_config.xml
+            - name: data
+              mountPath: /var/lib/clickhouse-keeper
+          env:
+            - name: SERVERS
+              value: "3"
+            - name: RAFT_PORT
+              value: "9444"
+          command:
+            - bash
+            - -x
+            - "-c"
+            - |
+              HOST=`hostname -s`
+              DOMAIN=`hostname -d`
+              if [[ $HOST =~ (.*)-([0-9]+)$ ]]; then
+                  NAME=${BASH_REMATCH[1]}
+                  ORD=${BASH_REMATCH[2]}
+              else
+                  echo "Failed to parse name and ordinal of Pod"
+                  exit 1
+              fi
+              export MY_ID=$((ORD+1))
+              cat /etc/clickhouse-keeper/keeper_config.xml
+              clickhouse-keeper --config /etc/clickhouse-keeper/keeper_config.xml
+          resources:
+            requests:
+              memory: {{ .Values.keeper.resources.requests.memory }}
+              cpu: {{ .Values.keeper.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.keeper.resources.limits.memory }}
+              cpu: {{ .Values.keeper.resources.limits.cpu }}
+      volumes:
+        - name: keeper-config
+          configMap:
+            name: {{ .Values.clickhouse.clusterName }}-keeper-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.keeper.storage.class }}
+        resources:
+          requests:
+            storage: {{ .Values.keeper.storage.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.clickhouse.clusterName }}-keeper-headless
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: clickhouse-keeper
+spec:
+  ports:
+    - port: 2181
+      name: client
+    - port: 9444
+      name: raft
+  clusterIP: None
+  selector:
+    app: clickhouse-keeper
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.clickhouse.clusterName }}-keeper-config
+  namespace: {{ .Release.Namespace }}
+data:
+  keeper_config.xml: |
+    <clickhouse>
+        <logger>
+            <level>information</level>
+            <console>1</console>
+        </logger>
+        <listen_host>0.0.0.0</listen_host>
+        <keeper_server>
+            <tcp_port>2181</tcp_port>
+            <server_id from_env="MY_ID" />
+            <log_storage_path>/var/lib/clickhouse-keeper/coordination/log</log_storage_path>
+            <snapshot_storage_path>/var/lib/clickhouse-keeper/coordination/snapshots</snapshot_storage_path>
+
+            <coordination_settings>
+                <operation_timeout_ms>10000</operation_timeout_ms>
+                <session_timeout_ms>30000</session_timeout_ms>
+                <raft_logs_level>information</raft_logs_level>
+            </coordination_settings>
+
+            <raft_configuration>
+                <server>
+                    <id>1</id>
+                    <hostname>{{ .Values.clickhouse.clusterName }}-keeper-0.{{ .Values.clickhouse.clusterName }}-keeper-headless.{{ .Release.Namespace }}.svc.cluster.local</hostname>
+                    <port>9444</port>
+                </server>
+                <server>
+                    <id>2</id>
+                    <hostname>{{ .Values.clickhouse.clusterName }}-keeper-1.{{ .Values.clickhouse.clusterName }}-keeper-headless.{{ .Release.Namespace }}.svc.cluster.local</hostname>
+                    <port>9444</port>
+                </server>
+                <server>
+                    <id>3</id>
+                    <hostname>{{ .Values.clickhouse.clusterName }}-keeper-2.{{ .Values.clickhouse.clusterName }}-keeper-headless.{{ .Release.Namespace }}.svc.cluster.local</hostname>
+                    <port>9444</port>
+                </server>
+            </raft_configuration>
+        </keeper_server>
+    </clickhouse>

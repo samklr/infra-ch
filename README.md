@@ -1,6 +1,6 @@
-# Production-Ready ClickHouse on AWS EKS
+# Production-Ready ClickHouse on AWS EKS and GCP GKE
 
-This repository contains complete Infrastructure-as-Code (IaC) and Kubernetes manifests to deploy a production-ready ClickHouse cluster on AWS EKS using the Altinity ClickHouse Operator and ClickHouse Keeper.
+This repository contains complete Infrastructure-as-Code (IaC) and Kubernetes manifests to deploy a production-ready ClickHouse cluster on AWS EKS and GCP GKE using the Altinity ClickHouse Operator and ClickHouse Keeper.
 
 ## Features
 
@@ -51,6 +51,7 @@ This repository contains complete Infrastructure-as-Code (IaC) and Kubernetes ma
 - kubectl >= 1.28
 - Helm >= 3.12
 - bash
+- gcloud CLI (for GKE)
 
 ## Quick Start
 
@@ -138,6 +139,37 @@ This runs 13 comprehensive tests including:
 - Query execution
 - Replication status
 - Backup configuration
+
+## GKE Deployment
+
+### 1. Configure Terraform
+
+```bash
+cd terraform-gke
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your project details
+```
+
+### 2. Deploy Infrastructure
+
+```bash
+terraform init
+terraform plan
+terraform apply
+```
+
+### 3. Deploy ClickHouse
+
+```bash
+# Get credentials
+gcloud container clusters get-credentials $(terraform output -raw cluster_name) --region $(terraform output -raw region)
+
+# Install Operator
+kubectl apply -f https://github.com/Altinity/clickhouse-operator/raw/master/deploy/operator/clickhouse-operator-install-bundle.yaml
+
+# Install ClickHouse Chart
+helm install clickhouse k8s/charts/clickhouse-gke
+```
 
 ## Accessing ClickHouse
 

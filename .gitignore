@@ -37,7 +37,7 @@ secrets/
 !*.crt.example
 
 # Helm
-charts/
+# charts/
 *.tgz
 
 # Python

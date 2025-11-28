@@ -1,0 +1,11 @@
+project_id            = "my-gcp-project"
+region                = "us-central1"
+cluster_name          = "clickhouse-gke-demo"
+create_vpc            = true
+vpc_cidr              = "10.0.0.0/16"
+network               = "clickhouse-vpc"
+subnetwork            = "clickhouse-subnet"
+service_account_email = "default"
+clickhouse_node_count = 2
+keeper_node_count     = 3
+general_node_count    = 1

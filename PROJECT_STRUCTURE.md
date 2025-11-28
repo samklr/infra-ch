@@ -1,6 +1,6 @@
 # Project Structure
 
-Complete production-ready ClickHouse deployment on AWS EKS.
+Complete production-ready ClickHouse deployment on AWS EKS and GCP GKE.
 
 ```
 clickhouse-eks-deploy/
@@ -32,6 +32,17 @@ clickhouse-eks-deploy/
 │           ├── variables.tf
 │           └── outputs.tf
 │
+├── terraform-gke/                     # GKE Infrastructure
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── terraform.tfvars.example
+│
+├── terraform/modules/gke-cluster/     # GKE Cluster Module
+│   ├── main.tf
+│   ├── variables.tf
+│   └── outputs.tf
+│
 ├── k8s/                               # Kubernetes manifests
 │   ├── manifests/                     # Kubernetes YAML files
 │   │   ├── namespace.yaml            # ClickHouse namespace
@@ -45,6 +56,12 @@ clickhouse-eks-deploy/
 │   └── helm-values/                   # Helm chart values
 │       ├── clickhouse-operator-values.yaml      # Altinity operator
 │       └── aws-load-balancer-controller-values.yaml  # AWS LB controller
+│
+│   └── charts/                        # Helm Charts
+│       └── clickhouse-gke/            # GKE ClickHouse Chart
+│           ├── Chart.yaml
+│           ├── values.yaml
+│           └── templates/
 │
 ├── iam-policies/                      # IAM policy documents
 │   ├── s3-backup-policy.json         # S3 backup permissions

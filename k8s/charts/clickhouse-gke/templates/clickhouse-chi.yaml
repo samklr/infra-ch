@@ -1,0 +1,127 @@
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: {{ .Values.clickhouse.clusterName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  defaults:
+    templates:
+      podTemplate: clickhouse-pod
+      dataVolumeClaimTemplate: data-volume
+      logVolumeClaimTemplate: log-volume
+      serviceTemplate: chi-service
+
+  configuration:
+    users:
+      default/password: changeme
+      default/networks/ip:
+        - "0.0.0.0/0"
+      admin/password: admin_changeme
+      admin/profile: default
+      admin/quota: default
+      admin/networks/ip:
+        - "0.0.0.0/0"
+      admin/access_management: "1"
+
+    profiles:
+      default/max_memory_usage: "10000000000"
+      default/use_uncompressed_cache: "0"
+      default/load_balancing: "random"
+
+    zookeeper:
+      nodes:
+        - host: {{ .Values.clickhouse.clusterName }}-keeper-0.{{ .Values.clickhouse.clusterName }}-keeper-headless.{{ .Release.Namespace }}.svc.cluster.local
+          port: 2181
+        - host: {{ .Values.clickhouse.clusterName }}-keeper-1.{{ .Values.clickhouse.clusterName }}-keeper-headless.{{ .Release.Namespace }}.svc.cluster.local
+          port: 2181
+        - host: {{ .Values.clickhouse.clusterName }}-keeper-2.{{ .Values.clickhouse.clusterName }}-keeper-headless.{{ .Release.Namespace }}.svc.cluster.local
+          port: 2181
+
+    clusters:
+      - name: {{ .Values.clickhouse.clusterName }}
+        layout:
+          shardsCount: {{ .Values.clickhouse.shards }}
+          replicasCount: {{ .Values.clickhouse.replicas }}
+
+  templates:
+    podTemplates:
+      - name: clickhouse-pod
+        metadata:
+          labels:
+            app: clickhouse
+        spec:
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: role
+                        operator: In
+                        values:
+                          - clickhouse
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app
+                        operator: In
+                        values:
+                          - clickhouse
+                  topologyKey: kubernetes.io/hostname
+
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: clickhouse
+              effect: NoSchedule
+
+          containers:
+            - name: clickhouse
+              image: {{ .Values.clickhouse.image.repository }}:{{ .Values.clickhouse.image.tag }}
+              imagePullPolicy: {{ .Values.clickhouse.image.pullPolicy }}
+              resources:
+                requests:
+                  memory: {{ .Values.clickhouse.resources.requests.memory }}
+                  cpu: {{ .Values.clickhouse.resources.requests.cpu }}
+                limits:
+                  memory: {{ .Values.clickhouse.resources.limits.memory }}
+                  cpu: {{ .Values.clickhouse.resources.limits.cpu }}
+              volumeMounts:
+                - name: data-volume
+                  mountPath: /var/lib/clickhouse
+                - name: log-volume
+                  mountPath: /var/log/clickhouse-server
+
+    volumeClaimTemplates:
+      - name: data-volume
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ .Values.clickhouse.storage.class }}
+          resources:
+            requests:
+              storage: {{ .Values.clickhouse.storage.size }}
+
+      - name: log-volume
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ .Values.clickhouse.storage.class }}
+          resources:
+            requests:
+              storage: 10Gi
+
+    serviceTemplates:
+      - name: chi-service
+        metadata:
+          labels:
+            app: clickhouse
+        spec:
+          ports:
+            - name: http
+              port: 8123
+              targetPort: 8123
+            - name: tcp
+              port: 9000
+              targetPort: 9000
+          type: ClusterIP
