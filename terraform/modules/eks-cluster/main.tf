@@ -157,7 +157,7 @@ resource "aws_eks_node_group" "clickhouse" {
   tags = merge(
     var.tags,
     {
-      Name = "${var.cluster_name}-clickhouse-node"
+      Name                                            = "${var.cluster_name}-clickhouse-node"
       "k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned"
       "k8s.io/cluster-autoscaler/enabled"             = var.enable_cluster_autoscaler ? "true" : "false"
     }
@@ -253,7 +253,7 @@ resource "aws_eks_node_group" "general" {
   tags = merge(
     var.tags,
     {
-      Name = "${var.cluster_name}-general-node"
+      Name                                            = "${var.cluster_name}-general-node"
       "k8s.io/cluster-autoscaler/${var.cluster_name}" = "owned"
       "k8s.io/cluster-autoscaler/enabled"             = var.enable_cluster_autoscaler ? "true" : "false"
     }

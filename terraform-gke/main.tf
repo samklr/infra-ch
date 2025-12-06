@@ -38,11 +38,20 @@ module "gke_cluster" {
   region                = var.region
   regional              = var.regional
   zones                 = var.zones
+  deletion_protection   = var.deletion_protection
   network               = var.create_vpc ? google_compute_network.vpc[0].name : var.network
   subnetwork            = var.create_vpc ? google_compute_subnetwork.subnet[0].name : var.subnetwork
   service_account_email = var.service_account_email
 
-  clickhouse_node_count = var.clickhouse_node_count
-  keeper_node_count     = var.keeper_node_count
-  general_node_count    = var.general_node_count
+  clickhouse_node_count   = var.clickhouse_node_count
+  clickhouse_disk_size_gb = var.clickhouse_disk_size_gb
+  clickhouse_disk_type    = var.clickhouse_disk_type
+
+  keeper_node_count   = var.keeper_node_count
+  keeper_disk_size_gb = var.keeper_disk_size_gb
+  keeper_disk_type    = var.keeper_disk_type
+
+  general_node_count   = var.general_node_count
+  general_disk_size_gb = var.general_disk_size_gb
+  general_disk_type    = var.general_disk_type
 }

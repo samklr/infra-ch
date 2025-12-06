@@ -4,13 +4,13 @@ This repository contains complete Infrastructure-as-Code (IaC) and Kubernetes ma
 
 ## Features
 
-- **Production-Ready Infrastructure**: VPC with 3 AZs, private subnets, NAT gateways
-- **Managed EKS Cluster**: Kubernetes 1.28 with dedicated node groups
+- **Production-Ready Infrastructure**: VPC/VPC-native with private subnets
+- **Managed Kubernetes**: AWS EKS or GCP GKE with dedicated node groups
 - **ClickHouse Cluster**: 3 shards × 2 replicas across multiple availability zones
 - **ClickHouse Keeper**: Native coordination service (no ZooKeeper)
 - **High Availability**: Pod anti-affinity, topology spread, and PodDisruptionBudgets
-- **Secure by Default**: IRSA, encrypted EBS volumes, encrypted S3 backups
-- **Automated Backups**: Daily S3 backups with configurable retention
+- **Secure by Default**: IRSA/Workload Identity, encrypted volumes, encrypted backups
+- **Automated Backups**: Daily S3/GCS backups with configurable retention
 - **Monitoring**: Prometheus + Grafana with pre-configured dashboards and alerts
 - **Autoscaling**: Cluster Autoscaler for dynamic node scaling
 - **Load Balancer**: Network Load Balancer for external access
@@ -45,13 +45,12 @@ This repository contains complete Infrastructure-as-Code (IaC) and Kubernetes ma
 
 ## Prerequisites
 
-- AWS Account with appropriate permissions
-- AWS CLI v2 configured
+- AWS Account or GCP Project with appropriate permissions
+- AWS CLI v2 or gcloud CLI configured
 - Terraform >= 1.5.0
 - kubectl >= 1.28
 - Helm >= 3.12
 - bash
-- gcloud CLI (for GKE)
 
 ## Quick Start
 
@@ -150,6 +149,12 @@ cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your project details
 ```
 
+**Key Configuration Options**:
+
+- **Cluster Type**: Set `regional = true` (default) for multi-zone HA, or `false` for single-zone (cheaper).
+- **Deletion Protection**: Set `deletion_protection = true` for production to prevent accidental deletion.
+- **Node Disks**: Configure `clickhouse_disk_size_gb` (default 50) and `clickhouse_disk_type` (default "pd-ssd").
+
 ### 2. Deploy Infrastructure
 
 ```bash
@@ -168,7 +173,7 @@ gcloud container clusters get-credentials $(terraform output -raw cluster_name) 
 kubectl apply -f https://github.com/Altinity/clickhouse-operator/raw/master/deploy/operator/clickhouse-operator-install-bundle.yaml
 
 # Install ClickHouse Chart
-helm install clickhouse k8s/charts/clickhouse-gke
+helm install clickhouse ../k8s/charts/clickhouse-gke
 ```
 
 ## Accessing ClickHouse

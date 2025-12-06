@@ -20,6 +20,8 @@ resource "google_container_cluster" "primary" {
 
   network    = var.network
   subnetwork = var.subnetwork
+
+  deletion_protection = var.deletion_protection
 }
 
 # ClickHouse Node Pool
@@ -31,6 +33,8 @@ resource "google_container_node_pool" "clickhouse_nodes" {
 
   node_config {
     machine_type = var.clickhouse_machine_type
+    disk_size_gb = var.clickhouse_disk_size_gb
+    disk_type    = var.clickhouse_disk_type
 
     # Google recommends custom service accounts that have cloud-platform scope and permissions granted via IAM Roles.
     service_account = var.service_account_email
@@ -62,6 +66,8 @@ resource "google_container_node_pool" "keeper_nodes" {
 
   node_config {
     machine_type = var.keeper_machine_type
+    disk_size_gb = var.keeper_disk_size_gb
+    disk_type    = var.keeper_disk_type
 
     service_account = var.service_account_email
     oauth_scopes = [
@@ -92,6 +98,8 @@ resource "google_container_node_pool" "general_nodes" {
 
   node_config {
     machine_type = var.general_machine_type
+    disk_size_gb = var.general_disk_size_gb
+    disk_type    = var.general_disk_type
 
     service_account = var.service_account_email
     oauth_scopes = [
